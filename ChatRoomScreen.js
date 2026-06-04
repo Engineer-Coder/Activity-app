@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, FlatList, StyleSheet } from 'react-native';
 import { supabase } from './supabase';
+import { Alert } from 'react-native';
 
 export default function ChatRoomScreen({ route }) {
   const { threadId, threadTitle, details } = route.params;
@@ -28,10 +29,32 @@ export default function ChatRoomScreen({ route }) {
   }, [threadId]);
 
   const sendMessage = async () => {
-    if (!inputText.trim()) return;
-    await supabase.from('messages').insert([{ thread_id: threadId, content: inputText }]);
-    setInputText('');
-  };
+  if (!newMessage.trim()) return;
+
+  try {
+    // Fetch the currently authenticated user
+    const { data: { user } } = await supabase.auth.getUser();
+
+    const { data, error } = await supabase
+      .from('messages')
+      .insert([
+        {
+          thread_id: threadId,
+          content: newMessage,
+          sender_id: user?.id || null, // Uses your correct 'sender_id' column name!
+        }
+      ]);
+
+    if (error) {
+      Alert.alert("Database Error", error.message);
+    } else {
+      setNewMessage('');
+      fetchMessages(); // Refresh the list to show your new message!
+    }
+  } catch (err) {
+    Alert.alert("Error", err.message);
+  }
+};
 
   return (
     <View style={styles.container}>
