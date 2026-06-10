@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   View, 
   Text, 
@@ -11,130 +11,193 @@ import {
   KeyboardAvoidingView,
   Platform
 } from 'react-native';
-import { supabase } from './supabase'; // Adjust this path to match your file structure
+import { supabase } from './supabase';
 
 export default function ChatRoomScreen({ route }) {
-  // Grab the thread details passed from the previous Lobby screen
   const { threadId, threadTitle, threadInfo } = route.params;
 
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  
+  const [participantCount, setParticipantCount] = useState(0);
+  const [maxPlayers, setMaxPlayers] = useState(10);
+  const [hasJoined, setHasJoined] = useState(false);
 
-  // Fetch messages when the screen loads
   useEffect(() => {
-    fetchMessages();
+  fetchMessages();
+  fetchMatchDetailsAndRoster();
 
-    // BETA BONUS: Realtime listener so chats appear instantly without refreshing
-    const subscription = supabase
-      .channel(`public:messages:thread_id=eq.${threadId}`)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `thread_id=eq.${threadId}` }, (payload) => {
-        setMessages((prevMessages) => [...prevMessages, payload.new]);
-      })
-      .subscribe();
+  const msgSubscription = supabase
+    .channel(`public:messages:thread_id=eq.${threadId}`)
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `thread_id=eq.'${threadId}'` }, (payload) => {
+      setMessages((prevMessages) => [...prevMessages, payload.new]);
+    })
+    .subscribe();
 
-    return () => {
-      supabase.removeChannel(subscription);
-    };
-  }, [threadId]);
+  const rosterSubscription = supabase
+    .channel(`public:participants:thread_id=eq.${threadId}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'participants', filter: `thread_id=eq.'${threadId}'` }, () => {
+      fetchMatchDetailsAndRoster();
+    })
+    .subscribe();
 
-  // 1. FETCH MESSAGES WITH ERROR CATCHING
-  const fetchMessages = async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('messages')
-        .select('*')
-        .eq('thread_id', threadId)
-        .order('id', { ascending: true }); // Ordering by your fixed int8 ID column
+  return () => {
+    supabase.removeChannel(msgSubscription);
+    supabase.removeChannel(rosterSubscription);
+  };
+}, [threadId, fetchMessages, fetchMatchDetailsAndRoster]); // ✨ Added both functions here safely!
 
-      if (error) {
-        Alert.alert("🚨 Fetch Error", `Supabase rejected loading chats:\n\n${error.message}`);
-      } else {
-        setMessages(data || []);
+  // 1. FETCH MATCH DETAILS & ROSTER COUNT (Wrapped in useCallback)
+const fetchMatchDetailsAndRoster = useCallback(async () => {
+  try {
+    const { data: threadData } = await supabase
+      .from('threads')
+      .select('max_players')
+      .eq('id', threadId)
+      .single();
+    
+    if (threadData) setMaxPlayers(threadData.max_players || 10);
+
+    const { count, error } = await supabase
+      .from('participants')
+      .select('*', { count: 'exact', head: true })
+      .eq('thread_id', threadId);
+
+    if (!error) setParticipantCount(count || 0);
+  } catch (err) {
+    console.log(err.message);
+  }
+}, [threadId]); // Triggers only if threadId updates
+
+  const toggleMatchParticipation = async () => {
+    if (!hasJoined) {
+      if (participantCount >= maxPlayers) {
+        Alert.alert("Match Full 🚫", "Sorry, all spots for this match are taken!");
+        return;
       }
-    } catch (err) {
-      Alert.alert("💥 App Crash Error", `Failed to execute fetch operation:\n\n${err.message}`);
-    } finally {
-      setLoading(false);
+      try {
+        const { error } = await supabase
+          .from('participants')
+          .insert([{ thread_id: threadId, player_name: 'Beta Player' }]);
+
+        if (!error) {
+          setHasJoined(true);
+          fetchMatchDetailsAndRoster();
+        }
+      } catch (err) {
+        Alert.alert("Error", err.message);
+      }
+    } else {
+      try {
+        const { error } = await supabase
+          .from('participants')
+          .delete()
+          .eq('thread_id', threadId)
+          .eq('player_name', 'Beta Player')
+          .limit(1);
+
+        if (!error) {
+          setHasJoined(false);
+          fetchMatchDetailsAndRoster();
+        }
+      } catch (err) {
+        Alert.alert("Error", err.message);
+      }
     }
   };
 
-  // 2. SEND MESSAGE WITH ERROR CATCHING
+  // 2. FETCH CHAT MESSAGES (Wrapped in useCallback)
+const fetchMessages = useCallback(async () => {
+  setLoading(true);
+  const { data, error } = await supabase
+    .from('messages')
+    .select('*')
+    .eq('thread_id', threadId)
+    .order('id', { ascending: true });
+  if (!error) setMessages(data || []);
+  setLoading(false);
+}, [threadId]); // Triggers only if threadId updates
+
   const sendMessage = async () => {
     if (!newMessage.trim()) return;
-
-    try {
-      // We pass explicitly NO 'id' so your database sequence auto-generates it, 
-      // and 'null' for sender_id so beta testers don't have to log in.
-      const { data, error } = await supabase
-        .from('messages')
-        .insert([
-          {
-            thread_id: threadId,
-            content: newMessage.trim(),
-            sender_id: null 
-          }
-        ]);
-
-      if (error) {
-        Alert.alert("❌ Database Reject Error", `Your code sent the message, but your table rejected it:\n\n${error.message}`);
-      } else {
-        setNewMessage('');
-        // If the realtime subscription is lagging, this manually forces the screen to reload the new text
-        fetchMessages(); 
-      }
-    } catch (err) {
-      Alert.alert("💥 App Crash Error", `Failed to execute send operation:\n\n${err.message}`);
+    const { error } = await supabase
+      .from('messages')
+      .insert([{ thread_id: threadId, content: newMessage.trim(), sender_id: null }]);
+    if (!error) {
+      setNewMessage('');
+      fetchMessages();
     }
   };
 
-  // Render individual chat bubbles
-  const renderMessageItem = ({ item }) => (
-    <View style={styles.messageBubble}>
-      <Text style={styles.messageSender}>Beta User</Text>
-      <Text style={styles.messageText}>{item.content}</Text>
-    </View>
-  );
+  const renderMessageItem = ({ item }) => {
+    // For testing simulation, we format chat bubbles into beautifully rounded blocks
+    return (
+      <View style={styles.bubbleContainer}>
+        <View style={styles.premiumMessageBubble}>
+          <Text style={styles.premiumMessageSender}>Beta Runner</Text>
+          <Text style={styles.premiumMessageText}>{item.content}</Text>
+        </View>
+      </View>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
         style={styles.container}
-        keyboardVerticalOffset={90}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        {/* Thread Info Header Box */}
-        <View style={styles.headerBox}>
-          <Text style={styles.headerTitle}>{threadTitle}</Text>
-          {threadInfo ? <Text style={styles.headerInfo}>{threadInfo}</Text> : null}
+        {/* Modern Dashboard Header Banner */}
+        <View style={styles.premiumHeaderCard}>
+          <View style={styles.headerLayoutRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.mainHeaderTitle}>{threadTitle}</Text>
+              <Text style={styles.mainHeaderSub}>{threadInfo}</Text>
+            </View>
+            <View style={styles.premiumCounterBadge}>
+              <Text style={styles.counterBadgeText}>👥 {participantCount}/{maxPlayers}</Text>
+            </View>
+          </View>
+
+          <TouchableOpacity 
+            style={[styles.premiumJoinButton, hasJoined && styles.premiumLeaveButton]} 
+            onPress={toggleMatchParticipation}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.joinBtnText}>
+              {hasJoined ? '❌ Resign From Match Roster' : '⚡ Lock In My Spot'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Chat Feed */}
+        {/* Clean Feed Stream */}
         <FlatList
           data={messages}
           keyExtractor={(item, index) => item.id?.toString() || index.toString()}
           renderItem={renderMessageItem}
-          contentContainerStyle={styles.chatFeed}
+          contentContainerStyle={styles.premiumChatFeed}
           refreshing={loading}
           onRefresh={fetchMessages}
+          showsVerticalScrollIndicator={false}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>No messages here yet. Start the conversation!</Text>
+            <Text style={styles.emptyFeedText}>No coordinates shared yet. Align details below!</Text>
           }
         />
 
-        {/* Input Bar */}
-        <View style={styles.inputContainer}>
+        {/* Floating Input Toolbar */}
+        <View style={styles.premiumInputContainer}>
           <TextInput
-            style={styles.input}
-            placeholder="Type a message..."
-            placeholderTextColor="#8e8e93"
+            style={styles.premiumChatTextInput}
+            placeholder="Broadcast a message..."
+            placeholderTextColor="#a0a5ab"
             value={newMessage}
             onChangeText={setNewMessage}
             multiline
           />
-          <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
-            <Text style={styles.sendButtonText}>Send</Text>
+          <TouchableOpacity style={styles.premiumSendButton} onPress={sendMessage} activeOpacity={0.8}>
+            <Text style={styles.sendBtnText}>Send</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -143,86 +206,69 @@ export default function ChatRoomScreen({ route }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f7',
+  container: { flex: 1, backgroundColor: '#f8f9fa' },
+  premiumHeaderCard: { 
+    backgroundColor: '#fff', 
+    padding: 16, 
+    borderBottomWidth: 1, 
+    borderColor: '#eef0f2',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 6,
+    elevation: 3
   },
-  headerBox: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e5ea',
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#1c1c1e',
-  },
-  headerInfo: {
-    fontSize: 14,
-    color: '#8e8e93',
-    marginTop: 4,
-  },
-  chatFeed: {
-    padding: 16,
-  },
-  messageBubble: {
-    backgroundColor: '#fff',
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 10,
-    maxWidth: '85%',
-    alignSelf: 'flex-start',
+  headerLayoutRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  mainHeaderTitle: { fontSize: 18, fontWeight: '700', color: '#111', letterSpacing: -0.3 },
+  mainHeaderSub: { fontSize: 13, color: '#6c757d', marginTop: 2, fontWeight: '400' },
+  
+  premiumCounterBadge: { backgroundColor: '#eff6ff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 30 },
+  counterBadgeText: { color: '#2563eb', fontWeight: '700', fontSize: 13 },
+  
+  premiumJoinButton: { backgroundColor: '#2563eb', borderRadius: 10, paddingVertical: 12, alignItems: 'center', justifyContent: 'center' },
+  premiumLeaveButton: { backgroundColor: '#dc2626' },
+  joinBtnText: { color: '#fff', fontWeight: '600', fontSize: 15, letterSpacing: -0.2 },
+  
+  premiumChatFeed: { padding: 16 },
+  bubbleContainer: { width: '100%', marginBottom: 12, alignItems: 'flex-start' },
+  premiumMessageBubble: { 
+    backgroundColor: '#fff', 
+    paddingHorizontal: 14, 
+    paddingVertical: 10, 
+    borderRadius: 16, 
+    borderTopLeftRadius: 4, 
+    maxWidth: '85%', 
+    borderWidth: 1,
+    borderColor: '#eef0f2',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-    elevation: 1,
+    shadowOpacity: 0.02,
+    shadowRadius: 2,
+    elevation: 1
   },
-  messageSender: {
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#007aff',
-    marginBottom: 2,
+  premiumMessageSender: { fontSize: 11, fontWeight: '700', color: '#4f46e5', marginBottom: 3, uppercase: true, letterSpacing: 0.2 },
+  premiumMessageText: { fontSize: 15, color: '#2d3748', lineHeight: 20 },
+  emptyFeedText: { textAlign: 'center', color: '#a0a5ab', marginTop: 30, fontSize: 14 },
+  
+  premiumInputContainer: { 
+    flexDirection: 'row', 
+    paddingHorizontal: 14, 
+    paddingVertical: 12, 
+    backgroundColor: '#fff', 
+    borderTopWidth: 1, 
+    borderColor: '#eef0f2', 
+    alignItems: 'center' 
   },
-  messageText: {
-    fontSize: 16,
-    color: '#1c1c1e',
+  premiumChatTextInput: { 
+    flex: 1, 
+    backgroundColor: '#f1f3f5', 
+    borderRadius: 24, 
+    paddingHorizontal: 16, 
+    paddingVertical: 10, 
+    fontSize: 15, 
+    maxHeight: 90, 
+    color: '#1c1c1e' 
   },
-  emptyText: {
-    textAlign: 'center',
-    color: '#8e8e93',
-    marginTop: 40,
-    fontSize: 14,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    padding: 12,
-    backgroundColor: '#fff',
-    borderTopWidth: 1,
-    borderTopColor: '#e5e5ea',
-    alignItems: 'center',
-  },
-  input: {
-    flex: 1,
-    backgroundColor: '#f5f5f7',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    fontSize: 16,
-    maxHeight: 100,
-    color: '#1c1c1e',
-  },
-  sendButton: {
-    marginLeft: 12,
-    backgroundColor: '#007aff',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  sendButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
+  premiumSendButton: { marginLeft: 12, backgroundColor: '#2563eb', borderRadius: 20, paddingHorizontal: 18, paddingVertical: 10 },
+  sendBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 }
 });
