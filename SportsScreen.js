@@ -1,8 +1,5 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, FlatList, StyleSheet } from 'react-native';
-import React, { useLayoutEffect } from 'react';
-import { View, StyleSheet, FlatList, TouchableOpacity, Text } from 'react-native';
-import { supabase } from './supabase'; 
 
 const SPORTS = [
   { id: '1', name: '🏀 Basketball' },
@@ -12,21 +9,6 @@ const SPORTS = [
 ];
 
 export default function SportsScreen({ navigation }) {
-  useLayoutEffect(() => {
-  navigation.setOptions({
-    headerRight: () => (
-      <TouchableOpacity 
-        onPress={async () => {
-          await supabase.auth.signOut();
-          // Supabase will wipe the local session, and App.js will instantly snap back to the Register/Login screen!
-        }}
-        style={{ marginRight: 15 }}
-      >
-        <Text style={{ color: '#FF3B30', fontWeight: 'bold' }}>Sign Out</Text>
-      </TouchableOpacity>
-    ),
-  });
-}, [navigation]);
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Pick an Activity</Text>
