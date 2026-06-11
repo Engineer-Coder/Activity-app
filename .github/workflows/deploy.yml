@@ -28,6 +28,11 @@ jobs:
           EXPO_PUBLIC_BASE_URL: /Activity-app
         run: npx expo export --platform web
 
+      - name: Enforce Relative Paths for GitHub Pages
+        run: |
+          find dist -type f -exec sed -i 's|"/_expo/|"/Activity-app/_expo/|g' {} +
+          find dist -type f -exec sed -i 's|"_expo/|"Activity-app/_expo/|g' {} +
+
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
