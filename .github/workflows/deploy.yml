@@ -12,10 +12,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js (Updated to Node 20)
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20 # ✨ Fixes the .toReversed() crash!
 
       - name: Install Base Dependencies
         run: npm install
@@ -29,5 +29,5 @@ jobs:
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          folder: dist # Newer Expo versions output web builds to 'dist'
+          folder: dist
           branch: gh-pages
