@@ -24,16 +24,10 @@ jobs:
         run: npx expo install react-dom react-native-web
 
       - name: Build Web Production Bundle
-        run: npx expo export --platform web
-
-      - name: Fix Assets for GitHub Pages Subfolder
-        run: |
-          cp -r dist/_expo/* dist/ 2>/dev/null || true
-          sed -i 's|"/_expo/|./_expo/|g' dist/index.html
-          sed -i 's|"/|./|g' dist/index.html
+        run: npx expo export --platform web --output-dir build
 
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          folder: dist
+          folder: build
           branch: gh-pages
