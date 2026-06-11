@@ -1,0 +1,32 @@
+name: Deploy Web App to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main # Change to 'master' if your default branch is master
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+
+      - name: Install Expo CLI and Dependencies
+        run: |
+          npm install -g expo-cli
+          npm install
+
+      - name: Build Web Production Bundle
+        run: npx expo export --platform web
+
+      - name: Deploy to GitHub Pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          folder: dist # Expo outputs web builds into the 'dist' folder
+          branch: gh-pages # Deploys automatically to your gh-pages branch
