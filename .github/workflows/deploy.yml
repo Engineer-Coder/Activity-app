@@ -3,7 +3,7 @@ name: Deploy Web App to GitHub Pages
 on:
   push:
     branches:
-      - main # Change to 'master' if your default branch is master
+      - main # Change to 'master' if your default branch is named master
 
 jobs:
   deploy:
@@ -17,10 +17,11 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install Expo CLI and Dependencies
-        run: |
-          npm install -g expo-cli
-          npm install
+      - name: Install Base Dependencies
+        run: npm install
+
+      - name: Install Missing Expo Web Packages
+        run: npx expo install react-dom react-native-web
 
       - name: Build Web Production Bundle
         run: npx expo export --platform web
@@ -28,5 +29,5 @@ jobs:
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          folder: dist # Expo outputs web builds into the 'dist' folder
-          branch: gh-pages # Deploys automatically to your gh-pages branch
+          folder: dist # Newer Expo versions output web builds to 'dist'
+          branch: gh-pages
