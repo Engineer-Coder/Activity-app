@@ -3,7 +3,7 @@ name: Deploy Web App to GitHub Pages
 on:
   push:
     branches:
-      - main # Change to 'master' if your default branch is named master
+      - main
 
 jobs:
   deploy:
@@ -28,18 +28,11 @@ jobs:
 
       - name: Fix Assets for GitHub Pages Subfolder
         run: |
-          # This copies the _expo assets into the root folder so the browser can find them no matter where it looks
           cp -r dist/_expo/* dist/ 2>/dev/null || true
-          
-          # This alters the index.html file to look locally rather than at the root domain
           sed -i 's|"/_expo/|./_expo/|g' dist/index.html
           sed -i 's|"/|./|g' dist/index.html
 
       - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4
-        with:
-          folder: dist
-          branch: gh-pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
           folder: dist
