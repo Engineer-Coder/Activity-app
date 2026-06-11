@@ -12,10 +12,10 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node.js (Updated to Node 20)
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20 # ✨ Fixes the .toReversed() crash!
+          node-version: 20
 
       - name: Install Base Dependencies
         run: npm install
@@ -24,6 +24,8 @@ jobs:
         run: npx expo install react-dom react-native-web
 
       - name: Build Web Production Bundle
+        env:
+          EXPO_PUBLIC_BASE_URL: /Activity-app
         run: npx expo export --platform web
 
       - name: Deploy to GitHub Pages
