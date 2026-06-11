@@ -24,10 +24,17 @@ jobs:
         run: npx expo install react-dom react-native-web
 
       - name: Build Web Production Bundle
-        run: npx expo export --platform web --output-dir build
+        run: npx expo export --platform web
+
+      - name: Force Fix Absolute Paths for GitHub Pages
+        run: |
+          # This replaces /_expo/ with ./_expo/ directly inside index.html
+          sed -i 's|"/_expo/|"./_expo/|g' dist/index.html
+          sed -i 's| src="/| src="./|g' dist/index.html
+          sed -i 's| href="/| href="./|g' dist/index.html
 
       - name: Deploy to GitHub Pages
         uses: JamesIves/github-pages-deploy-action@v4
         with:
-          folder: build
+          folder: dist
           branch: gh-pages
